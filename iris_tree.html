@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Iris • Symmetric Tree (4 lines, simple controls)</title>
+<style>
+  :root{
+    --bg:#ffffff; --text:#111827;
+    --edge:#333333;
+    --root:#f472b6;
+    --internal:#fbbf24;
+    --leaf-ll:#f59e0b;
+    --leaf-lr:#ec4899;
+    --leaf-rl:#22c55e;
+    --leaf-rr:#0ea5e9;
+    --ball-neutral:#64748b;
+  }
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Roboto,Inter,Arial,sans-serif;}
+  .wrap{max-width:1020px;margin:22px auto;padding:14px;}
+  h1{margin:0 0 10px;text-align:center;font-size:22px;}
+  .panel{position:relative;border-radius:14px;box-shadow:0 10px 25px rgba(2,6,23,.06);padding:10px;}
+  .toolbar{display:flex;gap:10px;align-items:center;margin:6px 0}
+  button{padding:8px 14px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer;font-weight:600}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  #status{font-size:13px;color:#6b7280}
+  svg{width:100%;height:600px;display:block}
+  .edge{stroke:var(--edge);stroke-width:2.2;fill:none}
+  .node{stroke:#1f2937;stroke-width:1.6}
+  .leafText{fill:#111827;font-size:12px;text-anchor:middle;font-weight:600}
+  .split{fill:#374151;font-size:12px;text-anchor:middle}
+  .tooltip{
+    position:absolute; pointer-events:none; z-index:10;
+    background:#111827; color:#fff; padding:6px 8px; border-radius:8px;
+    font-size:12px; line-height:1.25; box-shadow:0 4px 16px rgba(0,0,0,.15);
+    transform:translate(-50%, -120%); white-space:nowrap; opacity:0; transition:opacity .12s ease;
+  }
+  .tooltip.show{opacity:1;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Random Path Tree Animation</h1>
+  <div class="panel">
+    <div class="toolbar">
+      <button id="run">Run</button>
+      <span id="status" aria-live="polite"></span>
+    </div>
+    <svg id="stage" viewBox="0 0 1000 600" aria-label="Iris Decision Tree"></svg>
+    <div id="tooltip" class="tooltip" role="tooltip" aria-hidden="true"></div>
+  </div>
+</div>
+<script>
+const NS="http://www.w3.org/2000/svg";
+const svg=document.getElementById('stage');
+function el(n,a={},p=svg){const e=document.createElementNS(NS,n);for(const[k,v]of Object.entries(a))e.setAttribute(k,v);p.appendChild(e);return e;}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+const COL={
+  root:css('--root'), internal:css('--internal'),
+  leaf:{ ll:css('--leaf-ll'), lr:css('--leaf-lr'), rl:css('--leaf-rl'), rr:css('--leaf-rr') },
+  neutral:css('--ball-neutral')
+};
+let N={}, underSlots={}, slotOcc={};
+function buildPositions(){
+  const y = {r0:100, r1:230, r2:420};
+  const x = {root:500, leftI:330, rightI:670, ll:220, lr:440, rl:560, rr:780};
+  N = {
+    root:   {x:x.root,  y:y.r0, kind:'root'},
+    leftI:  {x:x.leftI, y:y.r1, kind:'internal', label:'sepal length ≤ 5.6'},
+    rightI: {x:x.rightI,y:y.r1, kind:'internal', label:'petal width ≤ 1.75'},
+    ll:     {x:x.ll,    y:y.r2, kind:'leaf', label:'setosa'},
+    lr:     {x:x.lr,    y:y.r2, kind:'leaf', label:'versicolor'},
+    rl:     {x:x.rl,    y:y.r2, kind:'leaf', label:'versicolor'},
+    rr:     {x:x.rr,    y:y.r2, kind:'leaf', label:'virginica'}
+  };
+  underSlots = {};
+  slotOcc = {};
+  ['ll','lr','rl','rr'].forEach(k=>{
+    underSlots[k] = { 
+      cx0: N[k].x - 7*14,  
+      y0:  N[k].y + 46, 
+      dx:  14,             
+      dy:  14              
+    };
+  });
+}
+function drawTree(){
+  while(svg.firstChild) svg.removeChild(svg.firstChild);
+  line(N.root,N.leftI);  line(N.root,N.rightI);
+  line(N.leftI,N.ll);    line(N.leftI,N.lr);
+  line(N.rightI,N.rl);   line(N.rightI,N.rr);
+  circle(N.root, 44, COL.root);
+  circle(N.leftI, 38, COL.internal);
+  circle(N.rightI,38, COL.internal);
+  circle(N.ll,    36, COL.leaf.ll);
+  circle(N.lr,    36, COL.leaf.lr);
+  circle(N.rl,    36, COL.leaf.rl);
+  circle(N.rr,    36, COL.leaf.rr);
+  text(N.root.x,  N.root.y-48, `petal length ≤ ${ROOT_PL.toFixed(1)}`, 'split');
+  text(N.leftI.x, N.leftI.y-48, N.leftI.label, 'split');
+  text(N.rightI.x,N.rightI.y-48,N.rightI.label,'split');
+  labelLeaf(N.ll, 'll'); labelLeaf(N.lr, 'lr'); labelLeaf(N.rl, 'rl'); labelLeaf(N.rr, 'rr');
+}
+function line(a,b){el('line',{x1:a.x,y1:a.y,x2:b.x,y2:b.y,class:'edge'});}
+function circle(p,r,fill){el('circle',{cx:p.x,cy:p.y,r,fill,class:'node'});}
+function text(x,y,content,cls){const t=el('text',{x,y,class:cls}); t.textContent=content; return t;}
+function labelLeaf(node,key){ text(node.x, node.y+52, N[key].label, 'leafText'); }
+function nextUnderSlot(leafKey){
+  if(!slotOcc[leafKey]) slotOcc[leafKey]=0;
+  const k = slotOcc[leafKey]++;
+  const row = k % 4;                    
+  const col = Math.floor(k / 4);        
+  const spec = underSlots[leafKey];
+  return { cx: spec.cx0 + col*spec.dx, cy: spec.y0 + row*spec.dy };
+}
+let IRIS=null;
+async function loadIris(){
+  if(IRIS) return IRIS;
+  setStatus('Loading Iris dataset…');
+  try{
+    const url='https://raw.githubusercontent.com/mwaskom/seaborn-data/master/iris.csv';
+    const csv=await (await fetch(url)).text();
+    const rows=csv.trim().split(/\r?\n/); const header=rows.shift().split(',');
+    const I={
+      sl:header.indexOf('sepal_length'), sw:header.indexOf('sepal_width'),
+      pl:header.indexOf('petal_length'), pw:header.indexOf('petal_width'),
+      sp:header.indexOf('species')
+    };
+    IRIS = rows.map(r=>{
+      const c=r.split(',');
+      return {sl:+c[I.sl], sw:+c[I.sw], pl:+c[I.pl], pw:+c[I.pw], y:c[I.sp]};
+    });
+    setStatus('Loaded 150 samples.');
+  }catch(e){
+    IRIS=[
+      {sl:5.1,sw:3.5,pl:1.4,pw:0.2,y:'setosa'},
+      {sl:7.0,sw:3.2,pl:4.7,pw:1.4,y:'versicolor'},
+      {sl:6.3,sw:3.3,pl:6.0,pw:2.5,y:'virginica'}
+    ];
+    setStatus('Offline: using a small sample.');
+  }
+  return IRIS;
+}
+const ROOT_PL = 4.8;
+const LEFT_SL = 5.6;
+const RIGHT_PW = 1.75;
+function route(s){
+  const keys=['root'];
+  if(s.pl <= ROOT_PL){
+    keys.push('leftI');
+    if(s.sl <= LEFT_SL){ keys.push('ll'); return {keys, leaf:'ll'}; }
+    keys.push('lr'); return {keys, leaf:'lr'};
+  }else{
+    keys.push('rightI');
+    if(s.pw <= RIGHT_PW){ keys.push('rl'); return {keys, leaf:'rl'}; }
+    keys.push('rr'); return {keys, leaf:'rr'};
+  }
+}
+const tooltip = document.getElementById('tooltip');
+function showTip(html, x, y){
+  tooltip.innerHTML = html;
+  tooltip.style.left = x + 'px';
+  tooltip.style.top  = y + 'px';
+  tooltip.classList.add('show');
+  tooltip.setAttribute('aria-hidden','false');
+}
+function hideTip(){
+  tooltip.classList.remove('show');
+  tooltip.setAttribute('aria-hidden','true');
+}
+function ball(){ return el('circle',{r:9, fill:COL.neutral, cx:-999, cy:-999}); }
+async function moveAlong(keys, d, stepPx=9, frame=14){
+  for(let i=0;i<keys.length-1;i++){
+    const A=N[keys[i]], B=N[keys[i+1]];
+    const dx=B.x-A.x, dy=B.y-A.y, dist=Math.hypot(dx,dy);
+    const steps=Math.max(1,Math.floor(dist/stepPx));
+    for(let s=0;s<=steps;s++){
+      const u=s/steps;
+      d.setAttribute('cx', A.x+dx*u);
+      d.setAttribute('cy', A.y+dy*u);
+      await sleep(frame);
+    }
+  }
+}
+async function collectUnder(leafKey, sample, d){
+  d.setAttribute('fill', COL.leaf[leafKey]);
+  const sx=+d.getAttribute('cx'), sy=+d.getAttribute('cy');
+  await moveSeg({x:sx,y:sy},{x:sx,y:sy+16}, d, 9, 10);
+  const slot=nextUnderSlot(leafKey);
+  await moveSeg({x:sx,y:sy+16},{x:slot.cx,y:slot.cy-4}, d, 9, 10);
+  await moveSeg({x:slot.cx,y:slot.cy-4},{x:slot.cx,y:slot.cy+6}, d, 8, 9);
+  await moveSeg({x:slot.cx,y:slot.cy+6},{x:slot.cx,y:slot.cy}, d, 6, 9);
+  attachBallTooltip(d, sample, leafKey);
+}
+async function moveSeg(A,B,d,stepPx=9,frame=12){
+  const dx=B.x-A.x, dy=B.y-A.y, dist=Math.hypot(dx,dy);
+  const steps=Math.max(1,Math.floor(dist/stepPx));
+  for(let s=1;s<=steps;s++){
+    const u=s/steps;
+    d.setAttribute('cx', A.x+dx*u);
+    d.setAttribute('cy', A.y+dy*u);
+    await sleep(frame);
+  }
+}
+function attachBallTooltip(circleEl, sample, leafKey){
+  circleEl.dataset.sl = sample.sl.toFixed(1);
+  circleEl.dataset.sw = sample.sw.toFixed(1);
+  circleEl.dataset.pl = sample.pl.toFixed(1);
+  circleEl.dataset.pw = sample.pw.toFixed(1);
+  circleEl.dataset.y  = sample.y;
+  circleEl.dataset.leaf = leafKey;
+  const onMove = (evt)=>{
+    showTip(
+      `SL: ${circleEl.dataset.sl} &nbsp; SW: ${circleEl.dataset.sw}<br>`+
+      `PL: ${circleEl.dataset.pl} &nbsp; PW: ${circleEl.dataset.pw}<br>`+
+      `Species: ${circleEl.dataset.y} &nbsp; Leaf: ${circleEl.dataset.leaf.toUpperCase()}`,
+      evt.pageX, evt.pageY
+    );
+  };
+  const onLeave = ()=> hideTip();
+  circleEl.addEventListener('mousemove', onMove);
+  circleEl.addEventListener('mouseleave', onLeave);
+}
+const btnRun=document.getElementById('run');
+btnRun.addEventListener('click', runOnce);
+function setStatus(m){ document.getElementById('status').textContent = m?(' '+m):''; }
+function rebuildTree(){ buildPositions(); drawTree(); setStatus('Tree ready.'); }
+async function runOnce(){
+  btnRun.disabled=true;
+  const data=await loadIris();
+  slotOcc={}; setStatus('Running…');
+  const order=shuffle([...data.keys()]);
+  for(const i of order){
+    const s=data[i];
+    setStatus(`Running… PL=${s.pl.toFixed(1)} cm`);
+    const {keys, leaf}=route(s);
+    const d=ball();
+    await moveAlong(keys, d, 9, 12);
+    await collectUnder(leaf, s, d);
+  }
+  setStatus('Done. Hover balls for details.');
+  btnRun.disabled=false;
+}
+rebuildTree();
+</script>
+</body>
+</html>
